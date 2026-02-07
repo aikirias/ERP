@@ -185,6 +185,70 @@ const marginByChannel = [
   { label: "E-commerce", value: 30 },
 ];
 
+const inventoryProducts = [
+  {
+    id: "SIE-AR-12",
+    name: "Pack Argollas Siena",
+    category: "Aros",
+    totalStock: 260,
+    available: 180,
+    reserved: 80,
+  },
+  {
+    id: "AUR-LAY-08",
+    name: "Layering Aura",
+    category: "Collares",
+    totalStock: 190,
+    available: 120,
+    reserved: 70,
+  },
+  {
+    id: "CAP-PUL-18",
+    name: "Mix Pulseras Capri",
+    category: "Pulseras",
+    totalStock: 240,
+    available: 150,
+    reserved: 90,
+  },
+  {
+    id: "SET-PER-06",
+    name: "Set Perlas Boreal",
+    category: "Perlas",
+    totalStock: 110,
+    available: 68,
+    reserved: 42,
+  },
+  {
+    id: "KIT-VIT-80",
+    name: "Kit Vitrina Premium",
+    category: "Kits",
+    totalStock: 60,
+    available: 34,
+    reserved: 26,
+  },
+];
+
+const categoryStock = [
+  { category: "Aros", total: 820 },
+  { category: "Collares", total: 610 },
+  { category: "Pulseras", total: 540 },
+  { category: "Perlas", total: 320 },
+  { category: "Kits", total: 240 },
+];
+
+const upcomingShortages = [
+  { week: "Semana 1", product: "Argollas Siena", expected: -42 },
+  { week: "Semana 2", product: "Layering Aura", expected: -36 },
+  { week: "Semana 3", product: "Pulseras Capri", expected: -28 },
+  { week: "Semana 4", product: "Set Perlas Boreal", expected: -24 },
+];
+
+const supplierOrders = [
+  { supplier: "Taller Siena", products: "Argollas + Layering", eta: "12 días", qty: 320 },
+  { supplier: "Capri Italia", products: "Pulseras esmaltadas", eta: "9 días", qty: 210 },
+  { supplier: "Aurora Kits", products: "Kits vitrinas", eta: "14 días", qty: 90 },
+];
+
 export default function BackofficePage() {
   const [activeSection, setActiveSection] = useState<string>("overview");
   const [catalogData, setCatalogData] = useState(initialCatalogProducts);
@@ -883,13 +947,154 @@ export default function BackofficePage() {
   }
 
   function renderStock() {
+    const totalStock = inventoryProducts.reduce((acc, product) => acc + product.totalStock, 0);
+    const totalAvailable = inventoryProducts.reduce((acc, product) => acc + product.available, 0);
+    const totalReserved = inventoryProducts.reduce((acc, product) => acc + product.reserved, 0);
     return (
-      <div className="space-y-4">
-        <div className="space-y-1">
-          <h2 className="text-xl font-semibold text-slate-900">Stock por depósito</h2>
-          <p className="text-sm text-slate-500">Disponibilidad y reservas activas.</p>
+      <div className="space-y-6">
+        <div className="grid gap-4 md:grid-cols-3">
+          <Card className="border border-slate-200 bg-white">
+            <CardHeader>
+              <CardTitle>Stock total</CardTitle>
+              <CardDescription>Todo el catálogo</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <p className="text-3xl font-semibold text-slate-900">{totalStock} uds</p>
+              <p className="text-xs text-slate-500">Incluye productos suspendidos.</p>
+            </CardContent>
+          </Card>
+          <Card className="border border-slate-200 bg-white">
+            <CardHeader>
+              <CardTitle>Disponible</CardTitle>
+              <CardDescription>Liberado para venta</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <p className="text-3xl font-semibold text-slate-900">{totalAvailable} uds</p>
+              <p className="text-xs text-emerald-600">
+                {(totalAvailable / totalStock * 100).toFixed(0)}% disponible
+              </p>
+            </CardContent>
+          </Card>
+          <Card className="border border-slate-200 bg-white">
+            <CardHeader>
+              <CardTitle>Reservado</CardTitle>
+              <CardDescription>Pedidos confirmados</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <p className="text-3xl font-semibold text-slate-900">{totalReserved} uds</p>
+              <p className="text-xs text-amber-600">
+                {(totalReserved / totalStock * 100).toFixed(0)}% en preparación
+              </p>
+            </CardContent>
+          </Card>
         </div>
+
+        <div className="grid gap-6 lg:grid-cols-[1.6fr_1fr]">
+          <Card className="border border-slate-200 bg-white">
+            <CardHeader>
+              <CardTitle>Inventario por producto</CardTitle>
+              <CardDescription>Total, disponible y reservado</CardDescription>
+            </CardHeader>
+            <CardContent className="overflow-x-auto p-0">
+              <table className="w-full text-left text-sm">
+                <thead className="border-b border-slate-200 bg-slate-50 text-slate-500">
+                  <tr>
+                    <th className="px-4 py-3">SKU</th>
+                    <th className="px-4 py-3">Producto</th>
+                    <th className="px-4 py-3">Categoría</th>
+                    <th className="px-4 py-3">Total</th>
+                    <th className="px-4 py-3">Disponible</th>
+                    <th className="px-4 py-3">Reservado</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {inventoryProducts.map((product) => (
+                    <tr key={product.id} className="border-b border-slate-100">
+                      <td className="px-4 py-3 font-medium text-slate-900">{product.id}</td>
+                      <td className="px-4 py-3">{product.name}</td>
+                      <td className="px-4 py-3">{product.category}</td>
+                      <td className="px-4 py-3">{product.totalStock}</td>
+                      <td className="px-4 py-3 text-emerald-700">{product.available}</td>
+                      <td className="px-4 py-3 text-amber-600">{product.reserved}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </CardContent>
+          </Card>
+
+          <Card className="border border-slate-200 bg-white">
+            <CardHeader>
+              <CardTitle>Stock por categoría</CardTitle>
+              <CardDescription>Proporción del inventario</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {categoryStock.map((category) => (
+                <div key={category.category}>
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="font-semibold text-slate-800">{category.category}</span>
+                    <span className="text-slate-500">{category.total} uds</span>
+                  </div>
+                  <div className="mt-2 h-2 rounded-full bg-slate-100">
+                    <div
+                      className="h-full rounded-full bg-gradient-to-r from-slate-900 to-slate-500"
+                      style={{ width: `${Math.round((category.total / categoryStock[0].total) * 100)}%` }}
+                    />
+                  </div>
+                </div>
+              ))}
+            </CardContent>
+          </Card>
+        </div>
+
+        <div className="grid gap-6 lg:grid-cols-2">
+          <Card className="border border-slate-200 bg-white">
+            <CardHeader>
+              <CardTitle>Faltantes proyectados</CardTitle>
+              <CardDescription>En base a ventas y reposiciones</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3 text-sm">
+              {upcomingShortages.map((item) => (
+                <div key={item.week} className="flex items-center justify-between rounded-xl border border-slate-100 px-3 py-2">
+                  <div>
+                    <p className="font-semibold text-slate-900">{item.product}</p>
+                    <p className="text-xs text-slate-500">{item.week}</p>
+                  </div>
+                  <Badge variant="outline" className="border-rose-200 text-rose-600">
+                    {item.expected} uds
+                  </Badge>
+                </div>
+              ))}
+            </CardContent>
+          </Card>
+
+          <Card className="border border-slate-200 bg-white">
+            <CardHeader>
+              <CardTitle>Pedidos a proveedores</CardTitle>
+              <CardDescription>Órdenes en preparación</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3 text-sm">
+              {supplierOrders.map((order) => (
+                <div key={order.supplier} className="rounded-xl border border-slate-100 px-3 py-2">
+                  <div className="flex items-center justify-between">
+                    <p className="font-semibold text-slate-900">{order.supplier}</p>
+                    <Badge variant="outline" className="border-slate-200 text-slate-600">
+                      {order.eta}
+                    </Badge>
+                  </div>
+                  <p className="text-xs text-slate-500">{order.products}</p>
+                  <p className="text-xs text-slate-400">Qty {order.qty} uds</p>
+                </div>
+              ))}
+            </CardContent>
+          </Card>
+        </div>
+
         <Card className="border border-slate-200 bg-white">
+          <CardHeader>
+            <CardTitle>Stock por depósito</CardTitle>
+            <CardDescription>Disponibilidad y reservas activas.</CardDescription>
+          </CardHeader>
           <CardContent className="overflow-x-auto p-0">
             <table className="w-full text-left text-sm">
               <thead className="border-b border-slate-200 bg-slate-50 text-slate-500">
