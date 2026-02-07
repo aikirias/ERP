@@ -139,13 +139,20 @@ const warehouses = [
   { id: "CDMX", location: "Fulfillment México", available: 190, reserved: 22 },
 ];
 
-const shipments = [
+const shipmentsSeed = [
   {
     id: "PED-981",
     retailer: "Alma Mayorista",
     status: "En tránsito",
     carrier: "Andreani",
     eta: "Entrega mañana 10hs",
+    hasClaim: false,
+    history: [
+      { type: "status", value: "Preparando", timestamp: "2024-02-01 10:00" },
+      { type: "status", value: "Despachado", timestamp: "2024-02-02 08:30" },
+      { type: "note", value: "Coordinar entrega flexible", timestamp: "2024-02-02 10:00" },
+      { type: "status", value: "En tránsito", timestamp: "2024-02-03 09:00" },
+    ],
   },
   {
     id: "PED-982",
@@ -153,6 +160,14 @@ const shipments = [
     status: "Hold aduana",
     carrier: "Correo Argentino",
     eta: "Revisión",
+    hasClaim: true,
+    history: [
+      { type: "status", value: "Pendiente pago", timestamp: "2024-02-01 09:00" },
+      { type: "status", value: "Preparando", timestamp: "2024-02-01 13:00" },
+      { type: "status", value: "Despachado", timestamp: "2024-02-02 07:00" },
+      { type: "note", value: "Cliente reporta demora en Aduana", timestamp: "2024-02-04 11:20" },
+      { type: "status", value: "Hold aduana", timestamp: "2024-02-04 11:21" },
+    ],
   },
   {
     id: "PED-983",
@@ -160,8 +175,27 @@ const shipments = [
     status: "Despachado",
     carrier: "FedEx",
     eta: "Entrega hoy 18hs",
+    hasClaim: false,
+    history: [
+      { type: "status", value: "Preparando", timestamp: "2024-02-02 08:00" },
+      { type: "status", value: "Despachado", timestamp: "2024-02-03 06:45" },
+    ],
+  },
+  {
+    id: "PED-984",
+    retailer: "Concept Palermo",
+    status: "Pendiente pago",
+    carrier: "Andreani",
+    eta: "Esperando confirmación",
+    hasClaim: true,
+    history: [
+      { type: "status", value: "Pendiente pago", timestamp: "2024-02-01 15:00" },
+      { type: "note", value: "Ticket 554: factura recibida con error", timestamp: "2024-02-02 09:10" },
+    ],
   },
 ];
+
+const shipmentStatuses = ["Pendiente pago", "Preparando", "Despachado", "En tránsito", "Hold aduana", "Entregado"];
 
 const notes = [
   {
@@ -268,6 +302,11 @@ export default function BackofficePage() {
   const [bulkPricing, setBulkPricing] = useState({ target: "wholesale", mode: "markup", value: 5 });
   const [previewImages, setPreviewImages] = useState<string[]>([]);
   const [search, setSearch] = useState("");
+  const [shipmentsData, setShipmentsData] = useState(shipmentsSeed);
+  const [shipmentSearch, setShipmentSearch] = useState("");
+  const [clientFilter, setClientFilter] = useState("all");
+  const [noteForm, setNoteForm] = useState({ orderId: shipmentsSeed[0].id, text: "" });
+  const [timelineOrder, setTimelineOrder] = useState<string | null>(null);
 
   const overviewContent = useMemo(() => renderOverview(), [catalogData]);
 
@@ -354,6 +393,35 @@ export default function BackofficePage() {
             : product.retailPrice,
       })),
     );
+  }
+
+  function handleShipmentStatusChange(orderId: string, newStatus: string) {
+    const timestamp = new Date().toISOString().slice(0, 16).replace("T", " ");
+    setShipmentsData((prev) =>
+      prev.map((shipment) =>
+        shipment.id === orderId
+          ? {
+              ...shipment,
+              status: newStatus,
+              history: [...shipment.history, { type: "status", value: newStatus, timestamp }],
+            }
+          : shipment,
+      ),
+    );
+  }
+
+  function handleAddShipmentNote(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!timelineOrder || !noteForm.text.trim()) return;
+    const timestamp = new Date().toISOString().slice(0, 16).replace("T", " ");
+    setShipmentsData((prev) =>
+      prev.map((shipment) =>
+        shipment.id === timelineOrder
+          ? { ...shipment, history: [...shipment.history, { type: "note", value: noteForm.text.trim(), timestamp }] }
+          : shipment,
+      ),
+    );
+    setNoteForm({ orderId: timelineOrder, text: "" });
   }
 
   function renderOverview() {
@@ -1123,12 +1191,157 @@ export default function BackofficePage() {
   }
 
   function renderTracking() {
+    const complaints = shipmentsData.filter((shipment) => shipment.hasClaim);
+    const filteredShipments = shipmentsData.filter((shipment) => {
+      const matchesSearch =
+        shipment.id.toLowerCase().includes(shipmentSearch.toLowerCase()) ||
+        shipment.retailer.toLowerCase().includes(shipmentSearch.toLowerCase());
+      const matchesClient = clientFilter === "all" || shipment.retailer === clientFilter;
+      return matchesSearch && matchesClient;
+    });
+    const statusSummary = shipmentStatuses.map((status) => ({
+      status,
+      total: shipmentsData.filter((shipment) => shipment.status === status).length,
+    }));
     return (
-      <div className="space-y-4">
-        <div className="space-y-1">
-          <h2 className="text-xl font-semibold text-slate-900">Tracking y reclamos</h2>
-          <p className="text-sm text-slate-500">Estado de envíos y soporte.</p>
+      <div className="space-y-6">
+        <div className="grid gap-4 md:grid-cols-3">
+          <Card className="border border-slate-200 bg-white">
+            <CardHeader>
+              <CardTitle>Reclamos nuevos</CardTitle>
+              <CardDescription>Últimas 48hs</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <p className="text-3xl font-semibold text-slate-900">{complaints.length}</p>
+              <p className="text-xs text-rose-600">Revisar tickets abiertos.</p>
+            </CardContent>
+          </Card>
+          <Card className="border border-slate-200 bg-white">
+            <CardHeader>
+              <CardTitle>Pedidos activos</CardTitle>
+              <CardDescription>En tránsito o preparando</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <p className="text-3xl font-semibold text-slate-900">
+                {
+                  shipmentsData.filter((shipment) =>
+                    ["Preparando", "Despachado", "En tránsito", "Hold aduana"].includes(shipment.status),
+                  ).length
+                }
+              </p>
+              <p className="text-xs text-slate-500">Seguimiento en vivo</p>
+            </CardContent>
+          </Card>
+          <Card className="border border-slate-200 bg-white">
+            <CardHeader>
+              <CardTitle>Pedidos entregados</CardTitle>
+              <CardDescription>Última semana</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <p className="text-3xl font-semibold text-slate-900">
+                {shipmentsData.filter((shipment) => shipment.status === "Entregado").length}
+              </p>
+              <p className="text-xs text-emerald-600">Sin reclamos.</p>
+            </CardContent>
+          </Card>
         </div>
+
+        <Card className="border border-slate-200 bg-white">
+          <CardHeader>
+            <CardTitle>Dashboard de status</CardTitle>
+            <CardDescription>Distribución de pedidos</CardDescription>
+          </CardHeader>
+          <CardContent className="grid gap-6 lg:grid-cols-[1.2fr_0.8fr]">
+            <div className="flex items-center justify-center">
+              <div
+                className="relative h-52 w-52 rounded-full"
+                style={{
+                  background: `conic-gradient(${statusSummary
+                    .map((status, index) => {
+                      const start =
+                        (statusSummary.slice(0, index).reduce((acc, curr) => acc + curr.total, 0) / shipmentsData.length) *
+                        180;
+                      const end = start + (status.total / shipmentsData.length) * 180;
+                      const colors = ["#f97316", "#fb923c", "#fdba74", "#fed7aa", "#fecdd3", "#fca5a5"];
+                      return `${colors[index % colors.length]} ${start}deg ${end}deg`;
+                    })
+                    .join(", ")})`,
+                  transform: "rotate(180deg)",
+                }}
+              >
+                <div className="absolute inset-[18%] rounded-full bg-white text-center" style={{ transform: "rotate(-180deg)" }}>
+                  <p className="pt-10 text-3xl font-semibold text-slate-900">{shipmentsData.length}</p>
+                  <p className="text-xs text-slate-500">Pedidos totales</p>
+                </div>
+              </div>
+            </div>
+            <div className="space-y-3 text-sm">
+              {statusSummary.map((status, index) => (
+                <div key={status.status} className="flex items-center justify-between rounded-xl border border-slate-100 px-3 py-2">
+                  <div className="flex items-center gap-2">
+                    <span
+                      className="h-2 w-2 rounded-full"
+                      style={{ backgroundColor: ["#f97316", "#fb923c", "#fdba74", "#fed7aa", "#fecdd3", "#fca5a5"][index % 6] }}
+                    />
+                    <span className="font-semibold text-slate-800">{status.status}</span>
+                  </div>
+                  <div className="text-right text-slate-500">
+                    <p>{((status.total / shipmentsData.length) * 100).toFixed(0)}%</p>
+                    <p className="text-xs">{status.total} pedidos</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+          <CardContent className="space-y-3 text-sm">
+            <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Acciones rápidas</p>
+            <div className="rounded-xl border border-slate-100 px-3 py-2 text-slate-600">
+              <p className="font-semibold text-slate-900">Pedidos con reclamos</p>
+              {complaints.map((shipment) => (
+                <p key={shipment.id} className="text-sm">
+                  {shipment.id} · {shipment.retailer}
+                </p>
+              ))}
+            </div>
+            <div className="rounded-xl border border-slate-100 px-3 py-2 text-slate-600">
+              <p className="font-semibold text-slate-900">Notas recientes</p>
+                {shipmentsData
+                  .filter((shipment) => shipment.history.some((entry) => entry.type === "note"))
+                  .slice(0, 3)
+                  .map((shipment) => {
+                    const notes = shipment.history.filter((entry) => entry.type === "note");
+                    return (
+                      <p key={shipment.id} className="text-xs text-slate-500">
+                        {shipment.id}: {notes[notes.length - 1]?.value}
+                      </p>
+                    );
+                  })}
+            </div>
+          </CardContent>
+        </Card>
+
+        <div className="flex flex-wrap gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm">
+          <input
+            type="text"
+            placeholder="Buscar por pedido o cliente"
+            className="flex-1 rounded-xl border border-slate-200 px-3 py-2"
+            value={shipmentSearch}
+            onChange={(event) => setShipmentSearch(event.target.value)}
+          />
+          <select
+            className="rounded-xl border border-slate-200 px-3 py-2"
+            value={clientFilter}
+            onChange={(event) => setClientFilter(event.target.value)}
+          >
+            <option value="all">Todos los clientes</option>
+            {Array.from(new Set(shipmentsData.map((shipment) => shipment.retailer))).map((retailer) => (
+              <option key={retailer} value={retailer}>
+                {retailer}
+              </option>
+            ))}
+          </select>
+        </div>
+
         <Card className="border border-slate-200 bg-white">
           <CardContent className="overflow-x-auto p-0">
             <table className="w-full text-left text-sm">
@@ -1139,24 +1352,130 @@ export default function BackofficePage() {
                   <th className="px-4 py-3">Carrier</th>
                   <th className="px-4 py-3">ETA</th>
                   <th className="px-4 py-3">Estado</th>
+                  <th className="px-4 py-3">Notas</th>
+                  <th className="px-4 py-3">Reclamo</th>
+                  <th className="px-4 py-3 text-center">Historial</th>
                 </tr>
               </thead>
               <tbody>
-                {shipments.map((shipment) => (
+                {filteredShipments.map((shipment) => (
                   <tr key={shipment.id} className="border-b border-slate-100">
                     <td className="px-4 py-3 font-medium text-slate-900">{shipment.id}</td>
                     <td className="px-4 py-3">{shipment.retailer}</td>
                     <td className="px-4 py-3">{shipment.carrier}</td>
                     <td className="px-4 py-3">{shipment.eta}</td>
                     <td className="px-4 py-3">
-                      <Badge variant="outline" className="border-slate-300 text-slate-700">
-                        {shipment.status}
-                      </Badge>
+                      <select
+                        className="rounded-full border border-slate-200 px-3 py-1 text-xs"
+                        value={shipment.status}
+                        onChange={(event) => handleShipmentStatusChange(shipment.id, event.target.value)}
+                      >
+                        {shipmentStatuses.map((status) => (
+                          <option key={status} value={status}>
+                            {status}
+                          </option>
+                        ))}
+                      </select>
+                    </td>
+                    <td className="px-4 py-3 text-slate-500">
+                      {shipment.history.filter((entry) => entry.type === "note").length === 0
+                        ? "Sin notas"
+                        : shipment.history.filter((entry) => entry.type === "note")[shipment.history.filter((entry) => entry.type === "note").length - 1].value}
+                    </td>
+                    <td className="px-4 py-3 text-center">
+                      {shipment.hasClaim ? (
+                        <Badge variant="glow" className="bg-rose-100 px-4 text-rose-700">
+                          Reclamo activo
+                        </Badge>
+                      ) : (
+                        <span className="text-sm text-slate-400">-</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-center">
+                      <button
+                        className="rounded-full border border-slate-200 px-3 py-1 text-xs text-slate-600 hover:bg-slate-50"
+                        onClick={() => {
+                          setTimelineOrder((prev) => (prev === shipment.id ? null : shipment.id));
+                          setNoteForm({ orderId: shipment.id, text: "" });
+                        }}
+                      >
+                        Notas
+                      </button>
                     </td>
                   </tr>
                 ))}
               </tbody>
             </table>
+          </CardContent>
+        </Card>
+
+        {timelineOrder && (
+          <Card className="border border-slate-200 bg-white">
+            <CardHeader className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <CardTitle>Timeline del pedido {timelineOrder}</CardTitle>
+                <CardDescription>Evolución de status y notas</CardDescription>
+              </div>
+              <Button variant="outline" className="border-slate-200 text-slate-600" onClick={() => setTimelineOrder(null)}>
+                Cerrar
+              </Button>
+            </CardHeader>
+            <CardContent className="grid gap-6 lg:grid-cols-[1.2fr_0.8fr]">
+              <div className="space-y-4">
+                {shipmentsData
+                  .find((shipment) => shipment.id === timelineOrder)
+                  ?.history.map((entry, index) => (
+                    <div key={`${entry.timestamp}-${index}`} className="flex items-start gap-3">
+                      <div className="flex h-10 w-10 items-center justify-center rounded-full bg-slate-100 text-xs font-semibold text-slate-600">
+                        {entry.type === "status" ? "ST" : "NT"}
+                      </div>
+                      <div className="flex-1 rounded-2xl border border-slate-100 px-4 py-2">
+                        <p className="text-xs text-slate-400">{entry.timestamp}</p>
+                        <p className="text-sm font-semibold text-slate-900">
+                          {entry.type === "status" ? `Status: ${entry.value}` : entry.value}
+                        </p>
+                      </div>
+                    </div>
+                  ))}
+              </div>
+              <form className="grid gap-3" onSubmit={handleAddShipmentNote}>
+                <p className="text-sm font-semibold text-slate-800">Agregar nota</p>
+                <textarea
+                  className="h-24 w-full rounded-xl border border-slate-200 px-3 py-2"
+                  placeholder="Actualización de inventario, reclamo, etc."
+                  value={noteForm.text}
+                  onChange={(event) => setNoteForm((prev) => ({ ...prev, text: event.target.value }))}
+                />
+                <Button type="submit" className="bg-slate-900 text-white">
+                  Guardar nota
+                </Button>
+              </form>
+            </CardContent>
+          </Card>
+        )}
+
+        <Card className="border border-slate-200 bg-white">
+          <CardHeader>
+            <CardTitle>Historial de notas</CardTitle>
+            <CardDescription>Últimas entradas</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3 text-sm">
+            {shipmentsData
+              .flatMap((shipment) =>
+                shipment.history
+                  .filter((entry) => entry.type === "note")
+                  .map((note) => ({ id: shipment.id, retailer: shipment.retailer, note: note.value })),
+              )
+              .slice(-5)
+              .reverse()
+              .map((entry, index) => (
+                <div key={`${entry.id}-${index}`} className="rounded-xl border border-slate-100 px-3 py-2">
+                  <p className="text-xs text-slate-400">
+                    {entry.id} · {entry.retailer}
+                  </p>
+                  <p className="text-slate-700">{entry.note}</p>
+                </div>
+              ))}
           </CardContent>
         </Card>
       </div>
