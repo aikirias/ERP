@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import {
   BadgeCheck,
   Boxes,
@@ -78,39 +78,59 @@ const stuckOrders = [
   { id: "PED-780", retailer: "Concept Palermo", status: "Pago", time: "42h" },
 ];
 
-const catalogProducts = [
+const initialCatalogProducts = [
   {
     id: "SIE-AR-12",
     name: "Pack Argollas Siena",
     category: "Aros",
-    price: "$18.900",
+    wholesalePrice: 18900,
+    retailPrice: 28900,
     quantity: 120,
     status: true,
+    images: ["https://images.unsplash.com/photo-1590166223826-12dee1677420?auto=format&fit=crop&w=600&q=80"],
   },
   {
     id: "AUR-LAY-08",
     name: "Layering Aura",
     category: "Collares",
-    price: "$24.500",
+    wholesalePrice: 24500,
+    retailPrice: 35500,
     quantity: 86,
     status: true,
+    images: ["https://images.unsplash.com/photo-1601821765780-754fa98637c1?auto=format&fit=crop&w=600&q=80"],
   },
   {
     id: "CAP-PUL-18",
     name: "Mix Pulseras Capri",
     category: "Pulseras",
-    price: "$21.700",
+    wholesalePrice: 21700,
+    retailPrice: 32000,
     quantity: 140,
     status: true,
+    images: ["https://images.unsplash.com/photo-1765852550345-ddb23c794d01?auto=format&fit=crop&w=600&q=80"],
   },
   {
     id: "KIT-VIT-80",
     name: "Kit Vitrina Premium",
     category: "Kits",
-    price: "$98.500",
+    wholesalePrice: 98500,
+    retailPrice: 142000,
     quantity: 22,
     status: false,
+    images: ["https://images.unsplash.com/photo-1767210338407-54b9264c326b?auto=format&fit=crop&w=600&q=80"],
   },
+];
+
+const forecastShortages = [
+  { product: "Perlas Boreal", shortage: 60, week: "Semana 2" },
+  { product: "Layering Aura", shortage: 48, week: "Semana 3" },
+  { product: "Pulseras Capri", shortage: 42, week: "Semana 4" },
+];
+
+const nearOutOfStock = [
+  { product: "Argollas Siena", remaining: 18, coverage: "1.4 semanas" },
+  { product: "Set Perlas Boreal", remaining: 22, coverage: "1.7 semanas" },
+  { product: "Collar Materia Prima", remaining: 34, coverage: "2.0 semanas" },
 ];
 
 const warehouses = [
@@ -167,8 +187,112 @@ const marginByChannel = [
 
 export default function BackofficePage() {
   const [activeSection, setActiveSection] = useState<string>("overview");
+  const [catalogData, setCatalogData] = useState(initialCatalogProducts);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const emptyForm = {
+    id: "",
+    name: "",
+    category: "Aros",
+    wholesalePrice: "",
+    retailPrice: "",
+    quantity: "",
+    images: "",
+    file: null as File | null,
+    status: true,
+  };
+  const [productForm, setProductForm] = useState(emptyForm);
+  const [bulkPricing, setBulkPricing] = useState({ target: "wholesale", mode: "markup", value: 5 });
+  const [previewImages, setPreviewImages] = useState<string[]>([]);
+  const [search, setSearch] = useState("");
 
-  const renderOverview = () => {
+  const overviewContent = useMemo(() => renderOverview(), [catalogData]);
+
+  function handleProductSubmit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const parsedWholesale = Number(productForm.wholesalePrice);
+    const parsedRetail = Number(productForm.retailPrice);
+    const parsedQuantity = Number(productForm.quantity);
+    if (Number.isNaN(parsedWholesale) || Number.isNaN(parsedRetail) || Number.isNaN(parsedQuantity)) {
+      return;
+    }
+
+    const uploadedImageUrls: string[] = previewImages.filter((url) => url.startsWith("blob:"));
+    const typedUrls = productForm.images
+      .split(",")
+      .map((url) => url.trim())
+      .filter(Boolean);
+    const imagesArray = [...typedUrls, ...previewImages.filter((url) => !url.startsWith("blob:"))];
+    const finalImages = imagesArray.length > 0 ? imagesArray : uploadedImageUrls;
+    if (finalImages.length === 0) {
+      finalImages.push("https://images.unsplash.com/photo-1522312346375-d1a52e2b99b3?auto=format&fit=crop&w=600&q=80");
+    }
+
+    const payload = {
+      id: productForm.id ? productForm.id.toUpperCase() : `SKU-${Date.now()}`,
+      name: productForm.name,
+      category: productForm.category,
+      wholesalePrice: parsedWholesale,
+      retailPrice: parsedRetail,
+      quantity: parsedQuantity,
+      status: productForm.status,
+      images: finalImages,
+    };
+
+    if (editingId) {
+      setCatalogData((prev) => prev.map((product) => (product.id === editingId ? payload : product)));
+    } else {
+      setCatalogData((prev) => [...prev, payload]);
+    }
+    setEditingId(null);
+    setProductForm(emptyForm);
+    setPreviewImages([]);
+  }
+
+  function handleEditProduct(productId: string) {
+    const product = catalogData.find((item) => item.id === productId);
+    if (!product) return;
+    setEditingId(product.id);
+    setProductForm({
+      id: product.id,
+      name: product.name,
+      category: product.category,
+      wholesalePrice: String(product.wholesalePrice),
+      retailPrice: String(product.retailPrice),
+      quantity: String(product.quantity),
+      images: product.images.filter((url) => !url.startsWith("blob:")).join(", "),
+      file: null,
+      status: product.status,
+    });
+    setPreviewImages(product.images);
+  }
+
+  function handleToggleStatus(productId: string) {
+    setCatalogData((prev) =>
+      prev.map((product) => (product.id === productId ? { ...product, status: !product.status } : product)),
+    );
+  }
+
+  function handleBulkPricing() {
+    const adjustment = Number(bulkPricing.value);
+    if (Number.isNaN(adjustment) || adjustment === 0) return;
+    const factor = bulkPricing.mode === "markup" ? 1 + adjustment / 100 : 1 - adjustment / 100;
+
+    setCatalogData((prev) =>
+      prev.map((product) => ({
+        ...product,
+        wholesalePrice:
+          bulkPricing.target === "wholesale" || bulkPricing.target === "both"
+            ? Math.max(0, Math.round(product.wholesalePrice * factor))
+            : product.wholesalePrice,
+        retailPrice:
+          bulkPricing.target === "retail" || bulkPricing.target === "both"
+            ? Math.max(0, Math.round(product.retailPrice * factor))
+            : product.retailPrice,
+      })),
+    );
+  }
+
+  function renderOverview() {
     const maxRevenue = Math.max(...revenueTrend.map((point) => point.amount));
     const revenuePoints = revenueTrend
       .map((point, index) => {
@@ -247,17 +371,8 @@ export default function BackofficePage() {
                       <stop offset="100%" stopColor="#0f172a" stopOpacity="0" />
                     </linearGradient>
                   </defs>
-                  <polygon
-                    fill="url(#revenueGradient)"
-                    points={`0,100 ${revenuePoints} 100,100`}
-                  />
-                  <polyline
-                    fill="none"
-                    stroke="#0f172a"
-                    strokeWidth="1.5"
-                    strokeLinecap="round"
-                    points={revenuePoints}
-                  />
+                  <polygon fill="url(#revenueGradient)" points={`0,100 ${revenuePoints} 100,100`} />
+                  <polyline fill="none" stroke="#0f172a" strokeWidth="1.5" strokeLinecap="round" points={revenuePoints} />
                 </svg>
                 <div className="absolute inset-0 flex items-end justify-between px-1 text-xs text-slate-400">
                   {revenueTrend.map((point) => (
@@ -275,10 +390,7 @@ export default function BackofficePage() {
             </CardHeader>
             <CardContent className="grid gap-4 lg:grid-cols-[1fr_1fr]">
               <div className="flex items-center justify-center">
-                <div
-                  className="relative h-40 w-40 rounded-full"
-                  style={{ background: `conic-gradient(${donutSegments})` }}
-                >
+                <div className="relative h-40 w-40 rounded-full" style={{ background: `conic-gradient(${donutSegments})` }}>
                   <div className="absolute inset-[18%] rounded-full bg-white/90 text-center">
                     <p className="pt-8 text-2xl font-semibold text-slate-900">
                       {orderStatusData.reduce((acc, data) => acc + data.total, 0)}
@@ -293,9 +405,7 @@ export default function BackofficePage() {
                     <div className="flex items-center gap-2">
                       <span
                         className="h-2 w-2 rounded-full"
-                        style={{
-                          backgroundColor: ["#f97316", "#fb923c", "#fdba74", "#fed7aa"][index % 4],
-                        }}
+                        style={{ backgroundColor: ["#f97316", "#fb923c", "#fdba74", "#fed7aa"][index % 4] }}
                       />
                       <span className="font-medium text-slate-800">{status.label}</span>
                     </div>
@@ -348,10 +458,10 @@ export default function BackofficePage() {
                   </div>
                   <div className="mt-2 h-16 rounded-2xl border border-slate-100 bg-slate-50">
                     <div
-                      className="h-full rounded-2xl bg-gradient-to-r from-emerald-400 to-emerald-200 text-right text-xs font-semibold text-emerald-900"
+                      className="flex h-full items-center justify-end rounded-2xl bg-gradient-to-r from-emerald-400 to-emerald-200 pr-2 text-xs font-semibold text-emerald-900"
                       style={{ width: `${channel.value}%` }}
                     >
-                      <span className="mr-2 align-middle">{channel.value}% margen</span>
+                      {channel.value}% margen
                     </div>
                   </div>
                 </div>
@@ -405,188 +515,488 @@ export default function BackofficePage() {
         </div>
       </div>
     );
-  };
+  }
 
-  const renderCatalog = () => (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="space-y-1">
-          <h2 className="text-xl font-semibold text-slate-900">Productos</h2>
-          <p className="text-sm text-slate-500">Filtrá, editá y publicá tu catálogo.</p>
-        </div>
-        <div className="flex gap-2">
-          <Button variant="outline" className="border-slate-300 text-slate-800">
-            Recomendaciones
-          </Button>
-          <Button className="bg-slate-900 text-white">
-            <PlusCircle className="mr-2 h-4 w-4" /> Nuevo producto
-          </Button>
-        </div>
-      </div>
-      <div className="flex flex-wrap gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm">
-        <div className="flex items-center gap-2">
-          <span className="text-slate-500">Categoría</span>
-          <select className="rounded-lg border border-slate-200 px-3 py-1">
-            <option>Root</option>
-            <option>Aros</option>
-            <option>Collares</option>
-          </select>
-        </div>
-        <div className="flex items-center gap-2">
-          <span className="text-slate-500">Acciones</span>
-          <select className="rounded-lg border border-slate-200 px-3 py-1">
-            <option>Bulk actions</option>
-            <option>Activar</option>
-            <option>Desactivar</option>
-          </select>
-        </div>
-      </div>
-      <Card className="border border-slate-200 bg-white">
-        <CardContent className="overflow-x-auto p-0">
-          <table className="w-full text-left text-sm">
-            <thead className="border-b border-slate-200 bg-slate-50 text-[12px] uppercase tracking-wide text-slate-500">
-              <tr>
-                <th className="px-4 py-3">ID</th>
-                <th className="px-4 py-3">Nombre</th>
-                <th className="px-4 py-3">Categoría</th>
-                <th className="px-4 py-3">Precio</th>
-                <th className="px-4 py-3">Stock</th>
-                <th className="px-4 py-3">Estado</th>
-                <th className="px-4 py-3">Acciones</th>
-              </tr>
-            </thead>
-            <tbody>
-              {catalogProducts.map((product) => (
-                <tr key={product.id} className="border-b border-slate-100 text-slate-700">
-                  <td className="px-4 py-3 text-slate-500">{product.id}</td>
-                  <td className="px-4 py-3 font-medium text-slate-900">{product.name}</td>
-                  <td className="px-4 py-3">{product.category}</td>
-                  <td className="px-4 py-3">{product.price}</td>
-                  <td className="px-4 py-3">{product.quantity}</td>
-                  <td className="px-4 py-3">
-                    <span className={`rounded-full px-3 py-1 text-xs font-semibold ${product.status ? "bg-emerald-100 text-emerald-700" : "bg-slate-200 text-slate-500"}`}>
-                      {product.status ? "Activo" : "Pausado"}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 text-slate-500">Editar</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </CardContent>
-      </Card>
-    </div>
-  );
-
-  const renderStock = () => (
-    <div className="space-y-4">
-      <div className="space-y-1">
-        <h2 className="text-xl font-semibold text-slate-900">Stock por depósito</h2>
-        <p className="text-sm text-slate-500">Disponibilidad y reservas activas.</p>
-      </div>
-      <Card className="border border-slate-200 bg-white">
-        <CardContent className="overflow-x-auto p-0">
-          <table className="w-full text-left text-sm">
-            <thead className="border-b border-slate-200 bg-slate-50 text-slate-500">
-              <tr>
-                <th className="px-4 py-3">Depósito</th>
-                <th className="px-4 py-3">Ubicación</th>
-                <th className="px-4 py-3">Disponible</th>
-                <th className="px-4 py-3">Reservado</th>
-              </tr>
-            </thead>
-            <tbody>
-              {warehouses.map((warehouse) => (
-                <tr key={warehouse.id} className="border-b border-slate-100">
-                  <td className="px-4 py-3 font-medium text-slate-900">{warehouse.id}</td>
-                  <td className="px-4 py-3">{warehouse.location}</td>
-                  <td className="px-4 py-3">{warehouse.available} uds</td>
-                  <td className="px-4 py-3 text-amber-600">{warehouse.reserved} uds</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </CardContent>
-      </Card>
-    </div>
-  );
-
-  const renderTracking = () => (
-    <div className="space-y-4">
-      <div className="space-y-1">
-        <h2 className="text-xl font-semibold text-slate-900">Tracking y reclamos</h2>
-        <p className="text-sm text-slate-500">Estado de envíos y soporte.</p>
-      </div>
-      <Card className="border border-slate-200 bg-white">
-        <CardContent className="overflow-x-auto p-0">
-          <table className="w-full text-left text-sm">
-            <thead className="border-b border-slate-200 bg-slate-50 text-slate-500">
-              <tr>
-                <th className="px-4 py-3">Pedido</th>
-                <th className="px-4 py-3">Retailer</th>
-                <th className="px-4 py-3">Carrier</th>
-                <th className="px-4 py-3">ETA</th>
-                <th className="px-4 py-3">Estado</th>
-              </tr>
-            </thead>
-            <tbody>
-              {shipments.map((shipment) => (
-                <tr key={shipment.id} className="border-b border-slate-100">
-                  <td className="px-4 py-3 font-medium text-slate-900">{shipment.id}</td>
-                  <td className="px-4 py-3">{shipment.retailer}</td>
-                  <td className="px-4 py-3">{shipment.carrier}</td>
-                  <td className="px-4 py-3">{shipment.eta}</td>
-                  <td className="px-4 py-3">
-                    <Badge variant="outline" className="border-slate-300 text-slate-700">
-                      {shipment.status}
-                    </Badge>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </CardContent>
-      </Card>
-    </div>
-  );
-
-  const renderNotes = () => (
-    <div className="space-y-4">
-      <div className="space-y-1">
-        <h2 className="text-xl font-semibold text-slate-900">Notas internas</h2>
-        <p className="text-sm text-slate-500">Checklist compartido con el equipo.</p>
-      </div>
-      <div className="grid gap-4 md:grid-cols-2">
-        {notes.map((note) => (
-          <Card key={note.title} className="border border-slate-200 bg-white">
+  function renderCatalog() {
+    const monthlyShortage = forecastShortages.reduce((acc, item) => acc + item.shortage, 0);
+    const filteredProducts = catalogData.filter(
+      (product) =>
+        product.name.toLowerCase().includes(search.toLowerCase()) ||
+        product.id.toLowerCase().includes(search.toLowerCase()) ||
+        product.category.toLowerCase().includes(search.toLowerCase()),
+    );
+    return (
+      <div className="space-y-6">
+        <div className="grid gap-4 md:grid-cols-3">
+          <Card className="border border-slate-200 bg-white">
             <CardHeader>
-              <CardTitle className="text-base">{note.title}</CardTitle>
+              <CardTitle>Faltantes proyectados</CardTitle>
+              <CardDescription>Próximo mes · todas las categorías</CardDescription>
             </CardHeader>
-            <CardContent className="text-sm text-slate-600">{note.detail}</CardContent>
+            <CardContent>
+              <p className="text-3xl font-semibold text-slate-900">{monthlyShortage} uds</p>
+              <p className="text-xs text-slate-500">Incluye preventas confirmadas.</p>
+            </CardContent>
           </Card>
-        ))}
+          <Card className="border border-slate-200 bg-white">
+            <CardHeader>
+              <CardTitle>Productos en riesgo</CardTitle>
+              <CardDescription>Cobertura &lt; 2 semanas</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <p className="text-3xl font-semibold text-slate-900">{nearOutOfStock.length}</p>
+              <p className="text-xs text-slate-500">Revisar pedidos a fábrica.</p>
+            </CardContent>
+          </Card>
+          <Card className="border border-slate-200 bg-white">
+            <CardHeader>
+              <CardTitle>Stock disponible</CardTitle>
+              <CardDescription>Catálogo activo</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <p className="text-3xl font-semibold text-slate-900">
+                {catalogData.reduce((acc, product) => acc + product.quantity, 0)} uds
+              </p>
+              <p className="text-xs text-slate-500">Sumatoria mayorista.</p>
+            </CardContent>
+          </Card>
+        </div>
+
+        <div className="grid gap-6 lg:grid-cols-[1.5fr_1fr]">
+          <Card className="border border-slate-200 bg-white">
+            <CardHeader>
+              <CardTitle>Cargar/editar producto</CardTitle>
+              <CardDescription>Gestioná fotos, precios y estado.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <form className="grid gap-4" onSubmit={handleProductSubmit}>
+                <div className="grid gap-3 md:grid-cols-2">
+                  <label className="text-sm text-slate-600">
+                    Nombre
+                    <input
+                      className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2"
+                      value={productForm.name}
+                      onChange={(event) => setProductForm((prev) => ({ ...prev, name: event.target.value }))}
+                      required
+                    />
+                  </label>
+                  <label className="text-sm text-slate-600">
+                    SKU
+                    <input
+                      className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 uppercase"
+                      value={productForm.id}
+                      onChange={(event) => setProductForm((prev) => ({ ...prev, id: event.target.value }))}
+                    />
+                  </label>
+                </div>
+                <div className="grid gap-3 md:grid-cols-3">
+                  <label className="text-sm text-slate-600">
+                    Categoría
+                    <select
+                      className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2"
+                      value={productForm.category}
+                      onChange={(event) => setProductForm((prev) => ({ ...prev, category: event.target.value }))}
+                    >
+                      <option>Aros</option>
+                      <option>Collares</option>
+                      <option>Pulseras</option>
+                      <option>Kits</option>
+                      <option>Perlas</option>
+                    </select>
+                  </label>
+                  <label className="text-sm text-slate-600">
+                    Precio mayorista
+                    <input
+                      type="number"
+                      className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2"
+                      value={productForm.wholesalePrice}
+                      onChange={(event) => setProductForm((prev) => ({ ...prev, wholesalePrice: event.target.value }))}
+                      required
+                    />
+                  </label>
+                  <label className="text-sm text-slate-600">
+                    Precio minorista
+                    <input
+                      type="number"
+                      className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2"
+                      value={productForm.retailPrice}
+                      onChange={(event) => setProductForm((prev) => ({ ...prev, retailPrice: event.target.value }))}
+                      required
+                    />
+                  </label>
+                </div>
+                <div className="grid gap-3 md:grid-cols-3">
+                  <label className="text-sm text-slate-600">
+                    Stock disponible
+                    <input
+                      type="number"
+                      className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2"
+                      value={productForm.quantity}
+                      onChange={(event) => setProductForm((prev) => ({ ...prev, quantity: event.target.value }))}
+                      required
+                    />
+                  </label>
+                  <label className="text-sm text-slate-600">
+                    Estado
+                    <select
+                      className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2"
+                      value={productForm.status ? "activo" : "pausado"}
+                      onChange={(event) => setProductForm((prev) => ({ ...prev, status: event.target.value === "activo" }))}
+                    >
+                      <option value="activo">Activo</option>
+                      <option value="pausado">Pausado</option>
+                    </select>
+                  </label>
+                  <label className="text-sm text-slate-600">
+                    URLs de imagen
+                    <textarea
+                      className="mt-1 h-10 w-full rounded-xl border border-slate-200 px-3 py-2 text-xs"
+                      placeholder="https://...jpg, https://...jpg"
+                      value={productForm.images}
+                      onChange={(event) => setProductForm((prev) => ({ ...prev, images: event.target.value }))}
+                    />
+                  </label>
+                </div>
+                <label className="text-sm text-slate-600">
+                  Subir foto (opcional)
+                  <input
+                    type="file"
+                    accept="image/*"
+                    className="mt-1 w-full rounded-xl border border-dashed border-slate-200 px-3 py-2 text-sm"
+                    onChange={(event) => {
+                      const file = event.target.files?.[0];
+                      if (file) {
+                        const previewUrl = URL.createObjectURL(file);
+                        setPreviewImages((prev) => [...prev.filter((url) => !url.startsWith("blob:")), previewUrl]);
+                        setProductForm((prev) => ({ ...prev, file }));
+                      }
+                    }}
+                  />
+                </label>
+                {previewImages.length > 0 && (
+                  <div className="grid gap-2">
+                    <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Previsualización</p>
+                    <div className="flex flex-wrap gap-3">
+                      {previewImages.map((img) => (
+                        <div key={img} className="relative h-20 w-24 overflow-hidden rounded-xl border border-slate-200">
+                          <img src={img} alt="preview" className="h-full w-full object-cover" />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                <div className="flex justify-end gap-2">
+                  {editingId && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="border-slate-200 text-slate-700"
+                      onClick={() => {
+                        setEditingId(null);
+                        setProductForm(emptyForm);
+                        setPreviewImages([]);
+                      }}
+                    >
+                      Cancelar
+                    </Button>
+                  )}
+                  <Button type="submit" className="bg-slate-900 text-white">
+                    {editingId ? "Actualizar" : "Agregar producto"}
+                  </Button>
+                </div>
+              </form>
+            </CardContent>
+          </Card>
+
+          <Card className="border border-slate-200 bg-white">
+            <CardHeader>
+              <CardTitle>Proyección & alertas</CardTitle>
+              <CardDescription>Organizá la reposición.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4 text-sm">
+              <div>
+                <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Faltantes por semana</p>
+                <div className="mt-3 space-y-2">
+                  {forecastShortages.map((item) => (
+                    <div key={item.product} className="flex items-center justify-between rounded-xl border border-slate-100 px-3 py-2">
+                      <div>
+                        <p className="font-semibold text-slate-900">{item.product}</p>
+                        <p className="text-xs text-slate-500">{item.week}</p>
+                      </div>
+                      <Badge variant="outline" className="border-rose-200 text-rose-600">
+                        -{item.shortage} uds
+                      </Badge>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Casi sin stock</p>
+                <div className="mt-3 space-y-2">
+                  {nearOutOfStock.map((item) => (
+                    <div key={item.product} className="flex items-center justify-between rounded-xl border border-slate-100 px-3 py-2">
+                      <div>
+                        <p className="font-semibold text-slate-900">{item.product}</p>
+                        <p className="text-xs text-slate-500">Cobertura {item.coverage}</p>
+                      </div>
+                      <Badge variant="outline" className="border-amber-200 text-amber-600">
+                        {item.remaining} uds
+                      </Badge>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+
         <Card className="border border-slate-200 bg-white">
           <CardHeader>
-            <CardTitle>Equipo online</CardTitle>
-            <CardDescription>Disponibilidad de asesoras.</CardDescription>
+            <CardTitle>Bulk pricing</CardTitle>
+            <CardDescription>Aplicá markup/markdown a precios mayoristas o minoristas.</CardDescription>
           </CardHeader>
-          <CardContent className="space-y-3">
-            {["Belén · Cono Sur", "Aura · Live Commerce", "Maru · Brasil"].map((advisor) => (
-              <div key={advisor} className="flex items-center justify-between rounded-xl border border-slate-200 px-3 py-2 text-sm">
-                <span>{advisor}</span>
-                <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-700">Online</span>
-              </div>
-            ))}
+          <CardContent className="grid gap-4 md:grid-cols-4">
+            <label className="text-sm text-slate-600">
+              Target
+              <select
+                className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2"
+                value={bulkPricing.target}
+                onChange={(event) => setBulkPricing((prev) => ({ ...prev, target: event.target.value }))}
+              >
+                <option value="wholesale">Mayorista</option>
+                <option value="retail">Minorista</option>
+                <option value="both">Ambos</option>
+              </select>
+            </label>
+            <label className="text-sm text-slate-600">
+              Acción
+              <select
+                className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2"
+                value={bulkPricing.mode}
+                onChange={(event) => setBulkPricing((prev) => ({ ...prev, mode: event.target.value }))}
+              >
+                <option value="markup">Markup (+)</option>
+                <option value="markdown">Markdown (-)</option>
+              </select>
+            </label>
+            <label className="text-sm text-slate-600">
+              %
+              <input
+                type="number"
+                className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2"
+                value={bulkPricing.value}
+                onChange={(event) => setBulkPricing((prev) => ({ ...prev, value: Number(event.target.value) }))}
+              />
+            </label>
+            <div className="flex items-end">
+              <Button className="w-full bg-slate-900 text-white" onClick={handleBulkPricing}>
+                Aplicar ajustes
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+
+        <div className="flex flex-wrap gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm">
+          <div className="flex items-center gap-2">
+            <span className="text-slate-500">Categoría</span>
+            <select className="rounded-lg border border-slate-200 px-3 py-1">
+              <option>Root</option>
+              <option>Aros</option>
+              <option>Collares</option>
+            </select>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-slate-500">Acciones</span>
+            <select className="rounded-lg border border-slate-200 px-3 py-1">
+              <option>Bulk actions</option>
+              <option>Activar</option>
+              <option>Desactivar</option>
+            </select>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-slate-500">Buscar</span>
+            <input
+              type="text"
+              className="rounded-lg border border-slate-200 px-3 py-1"
+              placeholder="SKU o nombre"
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+            />
+          </div>
+        </div>
+
+        <Card className="border border-slate-200 bg-white">
+          <CardContent className="overflow-x-auto p-0">
+            <table className="w-full text-left text-sm">
+              <thead className="border-b border-slate-200 bg-slate-50 text-[12px] uppercase tracking-wide text-slate-500">
+                <tr>
+                  <th className="px-4 py-3">SKU</th>
+                  <th className="px-4 py-3">Nombre</th>
+                  <th className="px-4 py-3">Categoría</th>
+                  <th className="px-4 py-3">Mayorista</th>
+                  <th className="px-4 py-3">Minorista</th>
+                  <th className="px-4 py-3">Stock</th>
+                  <th className="px-4 py-3">Fotos</th>
+                  <th className="px-4 py-3">Estado</th>
+                  <th className="px-4 py-3">Acciones</th>
+                </tr>
+              </thead>
+              <tbody>
+              {filteredProducts.map((product) => (
+                  <tr key={product.id} className="border-b border-slate-100 text-slate-700">
+                    <td className="px-4 py-3 text-slate-500">{product.id}</td>
+                    <td className="px-4 py-3 font-medium text-slate-900">{product.name}</td>
+                    <td className="px-4 py-3">{product.category}</td>
+                    <td className="px-4 py-3">${product.wholesalePrice.toLocaleString("es-AR")}</td>
+                    <td className="px-4 py-3">${product.retailPrice.toLocaleString("es-AR")}</td>
+                    <td className="px-4 py-3">{product.quantity}</td>
+                    <td className="px-4 py-3">
+                      <div className="flex flex-wrap gap-1">
+                        {product.images.slice(0, 2).map((img) => (
+                          <span key={img} className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] text-slate-500">
+                            Foto
+                          </span>
+                        ))}
+                      </div>
+                    </td>
+                    <td className="px-4 py-3">
+                      <button
+                        className={`rounded-full px-3 py-1 text-xs font-semibold ${product.status ? "bg-emerald-100 text-emerald-700" : "bg-slate-200 text-slate-500"}`}
+                        onClick={() => handleToggleStatus(product.id)}
+                      >
+                        {product.status ? "Activo" : "Pausado"}
+                      </button>
+                    </td>
+                    <td className="px-4 py-3">
+                      <button className="text-slate-500 underline" onClick={() => handleEditProduct(product.id)}>
+                        Editar
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </CardContent>
         </Card>
       </div>
-    </div>
-  );
+    );
+  }
+
+  function renderStock() {
+    return (
+      <div className="space-y-4">
+        <div className="space-y-1">
+          <h2 className="text-xl font-semibold text-slate-900">Stock por depósito</h2>
+          <p className="text-sm text-slate-500">Disponibilidad y reservas activas.</p>
+        </div>
+        <Card className="border border-slate-200 bg-white">
+          <CardContent className="overflow-x-auto p-0">
+            <table className="w-full text-left text-sm">
+              <thead className="border-b border-slate-200 bg-slate-50 text-slate-500">
+                <tr>
+                  <th className="px-4 py-3">Depósito</th>
+                  <th className="px-4 py-3">Ubicación</th>
+                  <th className="px-4 py-3">Disponible</th>
+                  <th className="px-4 py-3">Reservado</th>
+                </tr>
+              </thead>
+              <tbody>
+                {warehouses.map((warehouse) => (
+                  <tr key={warehouse.id} className="border-b border-slate-100">
+                    <td className="px-4 py-3 font-medium text-slate-900">{warehouse.id}</td>
+                    <td className="px-4 py-3">{warehouse.location}</td>
+                    <td className="px-4 py-3">{warehouse.available} uds</td>
+                    <td className="px-4 py-3 text-amber-600">{warehouse.reserved} uds</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  function renderTracking() {
+    return (
+      <div className="space-y-4">
+        <div className="space-y-1">
+          <h2 className="text-xl font-semibold text-slate-900">Tracking y reclamos</h2>
+          <p className="text-sm text-slate-500">Estado de envíos y soporte.</p>
+        </div>
+        <Card className="border border-slate-200 bg-white">
+          <CardContent className="overflow-x-auto p-0">
+            <table className="w-full text-left text-sm">
+              <thead className="border-b border-slate-200 bg-slate-50 text-slate-500">
+                <tr>
+                  <th className="px-4 py-3">Pedido</th>
+                  <th className="px-4 py-3">Retailer</th>
+                  <th className="px-4 py-3">Carrier</th>
+                  <th className="px-4 py-3">ETA</th>
+                  <th className="px-4 py-3">Estado</th>
+                </tr>
+              </thead>
+              <tbody>
+                {shipments.map((shipment) => (
+                  <tr key={shipment.id} className="border-b border-slate-100">
+                    <td className="px-4 py-3 font-medium text-slate-900">{shipment.id}</td>
+                    <td className="px-4 py-3">{shipment.retailer}</td>
+                    <td className="px-4 py-3">{shipment.carrier}</td>
+                    <td className="px-4 py-3">{shipment.eta}</td>
+                    <td className="px-4 py-3">
+                      <Badge variant="outline" className="border-slate-300 text-slate-700">
+                        {shipment.status}
+                      </Badge>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  function renderNotes() {
+    return (
+      <div className="space-y-4">
+        <div className="space-y-1">
+          <h2 className="text-xl font-semibold text-slate-900">Notas internas</h2>
+          <p className="text-sm text-slate-500">Checklist compartido con el equipo.</p>
+        </div>
+        <div className="grid gap-4 md:grid-cols-2">
+          {notes.map((note) => (
+            <Card key={note.title} className="border border-slate-200 bg-white">
+              <CardHeader>
+                <CardTitle className="text-base">{note.title}</CardTitle>
+              </CardHeader>
+              <CardContent className="text-sm text-slate-600">{note.detail}</CardContent>
+            </Card>
+          ))}
+          <Card className="border border-slate-200 bg-white">
+            <CardHeader>
+              <CardTitle>Equipo online</CardTitle>
+              <CardDescription>Disponibilidad de asesoras.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {["Belén · Cono Sur", "Aura · Live Commerce", "Maru · Brasil"].map((advisor) => (
+                <div key={advisor} className="flex items-center justify-between rounded-xl border border-slate-200 px-3 py-2 text-sm">
+                  <span>{advisor}</span>
+                  <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-700">Online</span>
+                </div>
+              ))}
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+    );
+  }
 
   const renderContent = () => {
     switch (activeSection) {
       case "overview":
-        return renderOverview();
+        return overviewContent;
       case "catalog":
         return renderCatalog();
       case "stock":
